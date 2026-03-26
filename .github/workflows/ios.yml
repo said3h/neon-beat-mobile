@@ -34,21 +34,49 @@ jobs:
         working-directory: ios
         run: pod install
 
-      - name: Build iOS app without codesign
+      - name: Resolve Xcode workspace and scheme
+        id: xcode
         run: |
           WORKSPACE_PATH="$(find ios -maxdepth 1 -name '*.xcworkspace' | head -n 1)"
-          SCHEME="$(xcodebuild -list -json -workspace "$WORKSPACE_PATH" | ruby -rjson -e 'puts JSON.parse(STDIN.read).dig("workspace", "schemes", 0)')"
+          PROJECT_PATH="$(find ios -maxdepth 1 -name '*.xcodeproj' | head -n 1)"
+
+          if [ -z "$WORKSPACE_PATH" ] || [ -z "$PROJECT_PATH" ]; then
+            echo "::error::Unable to find the generated iOS workspace/project."
+            exit 1
+          fi
+
+          SCHEME="$(xcodebuild -list -json -project "$PROJECT_PATH" | python3 -c "import json,sys; schemes=json.load(sys.stdin).get('project',{}).get('schemes',[]); preferred=[s for s in schemes if not s.startswith('Pods-') and not s.endswith('Tests') and not s.endswith('UITests')]; print((preferred or schemes)[0] if (preferred or schemes) else '')")"
+
+          if [ -z "$SCHEME" ]; then
+            echo "::error::Unable to resolve an application scheme from $PROJECT_PATH."
+            xcodebuild -list -project "$PROJECT_PATH"
+            exit 1
+          fi
+
+          echo "workspace=$WORKSPACE_PATH" >> "$GITHUB_OUTPUT"
+          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+
+      - name: Build iOS app without codesign
+        run: |
           xcodebuild \
-            -workspace "$WORKSPACE_PATH" \
-            -scheme "$SCHEME" \
+            -workspace "${{ steps.xcode.outputs.workspace }}" \
+            -scheme "${{ steps.xcode.outputs.scheme }}" \
             -configuration Release \
-            -sdk iphoneos \
+            -destination generic/platform=iOS \
             -derivedDataPath build/ios \
+            build \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Package IPA
         run: |
-          APP_PATH="$(find build/ios/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -n 1)"
+          APP_PATH="$(find build/ios -type d -name '*.app' | head -n 1)"
+
+          if [ -z "$APP_PATH" ]; then
+            echo "::error::No .app bundle was produced by xcodebuild."
+            find build/ios -maxdepth 6 -type d | sort
+            exit 1
+          fi
+
           mkdir -p build/ios/ipa/Payload
           cp -R "$APP_PATH" build/ios/ipa/Payload/
           cd build/ios/ipa
