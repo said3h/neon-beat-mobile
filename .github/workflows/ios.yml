@@ -30,6 +30,15 @@ jobs:
       - name: Generate iOS project
         run: npx expo prebuild --platform ios --no-install
 
+      - name: Prepare Xcode bundling environment
+        working-directory: ios
+        run: |
+          {
+            echo "export NODE_BINARY=$(command -v node)"
+            echo "export RCT_NO_LAUNCH_PACKAGER=1"
+            echo "export ENTRY_FILE=index.js"
+          } > .xcode.env
+
       - name: Install CocoaPods dependencies
         working-directory: ios
         run: pod install
