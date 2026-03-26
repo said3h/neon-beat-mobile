@@ -1,21 +1,39 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { Audio } from 'expo-av';
 import { useRouter } from 'expo-router';
+import {
+  getAudioCalibrationOffset,
+  setAudioCalibrationOffset,
+} from '../src/game/audioCalibration';
+import { TEST_AUDIO_URI } from '../src/game/songData';
 
 export default function CalibrateScreen() {
   const router = useRouter();
-  const [offset, setOffset] = useState(0);
+  const [offset, setOffset] = useState(() => getAudioCalibrationOffset());
   const [isPlaying, setIsPlaying] = useState(false);
   const soundRef = useRef<Audio.Sound | null>(null);
+  const startTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Cargar sonido de prueba
+  const clearTimers = () => {
+    if (startTimeoutRef.current) {
+      clearTimeout(startTimeoutRef.current);
+      startTimeoutRef.current = null;
+    }
+
+    if (stopTimeoutRef.current) {
+      clearTimeout(stopTimeoutRef.current);
+      stopTimeoutRef.current = null;
+    }
+  };
+
   useEffect(() => {
     const loadSound = async () => {
       try {
         const { sound } = await Audio.Sound.createAsync(
-          { uri: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' },
+          { uri: TEST_AUDIO_URI },
           { shouldPlay: false }
         );
         soundRef.current = sound;
@@ -24,42 +42,75 @@ export default function CalibrateScreen() {
       }
     };
 
-    loadSound();
+    void loadSound();
 
     return () => {
+      clearTimers();
+
       if (soundRef.current) {
-        soundRef.current.unloadAsync();
+        void soundRef.current.unloadAsync();
       }
     };
   }, []);
 
-  // Reproducir con offset
-  const playTest = async () => {
-    if (!soundRef.current) return;
+  const stopTest = async () => {
+    clearTimers();
 
-    await soundRef.current.stopAsync();
-    await soundRef.current.setPositionAsync(0);
+    if (soundRef.current) {
+      try {
+        await soundRef.current.stopAsync();
+      } catch (error) {
+        // Ignore stop errors when the sound has not started yet.
+      }
 
-    // Aplicar offset
-    const offsetSeconds = offset / 1000;
-    if (offsetSeconds > 0) {
-      await soundRef.current.setPositionAsync(offsetSeconds * 1000);
+      await soundRef.current.setPositionAsync(0);
     }
 
-    await soundRef.current.playAsync();
-    setIsPlaying(true);
-
-    // Detener después de 10 segundos
-    setTimeout(() => {
-      stopTest();
-    }, 10000);
+    setIsPlaying(false);
   };
 
-  const stopTest = async () => {
-    if (soundRef.current) {
-      await soundRef.current.stopAsync();
+  const playTest = async () => {
+    const sound = soundRef.current;
+    if (!sound) {
+      return;
     }
-    setIsPlaying(false);
+
+    clearTimers();
+
+    try {
+      await sound.stopAsync();
+    } catch (error) {
+      // Ignore stop errors when replaying from an idle state.
+    }
+
+    await sound.setPositionAsync(0);
+
+    if (offset < 0) {
+      await sound.setPositionAsync(Math.abs(offset));
+    }
+
+    setIsPlaying(true);
+
+    const startPlayback = async () => {
+      try {
+        await sound.playAsync();
+      } catch (error) {
+        console.error('Error playing sound:', error);
+        setIsPlaying(false);
+      }
+    };
+
+    if (offset > 0) {
+      startTimeoutRef.current = setTimeout(() => {
+        void startPlayback();
+      }, offset);
+    } else {
+      await startPlayback();
+    }
+
+    stopTimeoutRef.current = setTimeout(() => {
+      void stopTest();
+    }, 10000 + Math.max(offset, 0));
   };
 
   return (
@@ -92,7 +143,7 @@ export default function CalibrateScreen() {
           style={[styles.playButton, isPlaying && styles.playButtonActive]}
           onPress={isPlaying ? stopTest : playTest}
         >
-          <Text style={styles.playButtonText}>
+          <Text style={[styles.playButtonText, isPlaying && styles.playButtonTextActive]}>
             {isPlaying ? 'DETENER' : 'PROBAR'}
           </Text>
         </TouchableOpacity>
@@ -100,28 +151,17 @@ export default function CalibrateScreen() {
 
       <View style={styles.info}>
         <Text style={styles.infoTitle}>Instrucciones:</Text>
-        <Text style={styles.infoText}>
-          1. Reproduce el audio de prueba
-        </Text>
-        <Text style={styles.infoText}>
-          2. Escucha si el audio está sincronizado
-        </Text>
-        <Text style={styles.infoText}>
-          3. Ajusta el offset si es necesario
-        </Text>
-        <Text style={styles.infoText}>
-          4. El offset positivo retrasa el audio
-        </Text>
-        <Text style={styles.infoText}>
-          5. El offset negativo adelanta el audio
-        </Text>
+        <Text style={styles.infoText}>1. Reproduce el audio de prueba</Text>
+        <Text style={styles.infoText}>2. Ajusta el offset hasta que se sienta correcto</Text>
+        <Text style={styles.infoText}>3. El offset positivo retrasa el audio</Text>
+        <Text style={styles.infoText}>4. El offset negativo adelanta el audio</Text>
+        <Text style={styles.infoText}>5. Guarda y vuelve al menu para jugar con ese ajuste</Text>
       </View>
 
       <TouchableOpacity
         style={styles.saveButton}
         onPress={() => {
-          // Guardar offset (en una app real, se guardaría en AsyncStorage)
-          console.log('Offset guardado:', offset);
+          setAudioCalibrationOffset(offset);
           router.back();
         }}
       >
@@ -195,6 +235,9 @@ const styles = StyleSheet.create({
     color: '#39ff14',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  playButtonTextActive: {
+    color: '#000',
   },
   info: {
     backgroundColor: '#111',

@@ -1,8 +1,9 @@
-import React, { useEffect, useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { GameCanvas } from './GameCanvas';
 import { useGameEngine } from '../game/useGameEngine';
 import { TEST_SONG } from '../game/songData';
+import { getAudioCalibrationOffset } from '../game/audioCalibration';
 
 const COLORS = ['#39ff14', '#ff073a', '#ccff00', '#00ffff'];
 
@@ -18,52 +19,65 @@ export default function GameScreen() {
     setAudioOffset,
   } = useGameEngine();
 
-  // Estado forzado para re-renderizar
-  const [tick, setTick] = useState(0);
+  const [, setTick] = useState(0);
 
-  // Iniciar juego
   useEffect(() => {
+    let isActive = true;
+    let rafId = 0;
+
     init(TEST_SONG.notes);
+    setAudioOffset(getAudioCalibrationOffset());
 
-    // Iniciar con audio de ejemplo (o sin audio si no hay archivo)
-    startGame('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3');
-    startLoop();
-
-    // Loop de renderizado
-    let rafId: number;
     const renderLoop = () => {
-      setTick(t => t + 1);
+      setTick((tick) => tick + 1);
+
+      if (engineRef.current.gameState.isGameOver) {
+        return;
+      }
+
       rafId = requestAnimationFrame(renderLoop);
     };
-    rafId = requestAnimationFrame(renderLoop);
+
+    const bootGame = async () => {
+      await startGame(TEST_SONG.audioUri);
+
+      if (!isActive) {
+        await stopGame();
+        return;
+      }
+
+      startLoop();
+      rafId = requestAnimationFrame(renderLoop);
+    };
+
+    void bootGame();
 
     return () => {
+      isActive = false;
       cancelAnimationFrame(rafId);
       stopLoop();
-      stopGame();
+      void stopGame();
     };
-  }, [init, startGame, startLoop, stopLoop, stopGame]);
+  }, [engineRef, init, setAudioOffset, startGame, startLoop, stopGame, stopLoop]);
 
-  // Manejar hit en lane
   const handleHitLane = useCallback((lane: number) => {
     hitLane(lane);
     engineRef.current.pressedLanes[lane] = true;
+
     setTimeout(() => {
       engineRef.current.pressedLanes[lane] = false;
     }, 100);
-  }, [hitLane]);
+  }, [engineRef, hitLane]);
 
   const { gameState, notes, particles, texts, pressedLanes, currentTime } = engineRef.current;
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>NEON BEAT</Text>
         <Text style={styles.subtitle}>Prototype</Text>
       </View>
 
-      {/* Canvas del juego */}
       <GameCanvas
         notes={notes}
         gameState={gameState}
@@ -74,7 +88,6 @@ export default function GameScreen() {
         onHitLane={handleHitLane}
       />
 
-      {/* Controles */}
       <View style={styles.controls}>
         {Array.from({ length: 4 }).map((_, i) => (
           <TouchableOpacity
@@ -89,7 +102,6 @@ export default function GameScreen() {
         ))}
       </View>
 
-      {/* Stats */}
       <View style={styles.stats}>
         <View style={styles.statRow}>
           <Text style={styles.statLabel}>Perfect:</Text>
@@ -105,7 +117,6 @@ export default function GameScreen() {
         </View>
       </View>
 
-      {/* Game Over */}
       {gameState.isGameOver && (
         <View style={styles.gameOver}>
           <Text style={styles.gameOverTitle}>GAME OVER</Text>

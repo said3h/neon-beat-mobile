@@ -8,7 +8,10 @@ export interface SongData {
   duration: number;
   name: string;
   bpm: number;
+  audioUri: string;
 }
+
+export const TEST_AUDIO_URI = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
 
 // Generador de notas básicas para testing
 export function generateTestSong(bpm: number = 120, durationMs: number = 60000): SongData {
@@ -63,6 +66,7 @@ export function generateTestSong(bpm: number = 120, durationMs: number = 60000):
     duration: durationMs,
     name: 'Test Song',
     bpm,
+    audioUri: TEST_AUDIO_URI,
   };
 }
 

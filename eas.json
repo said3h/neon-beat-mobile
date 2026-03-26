@@ -17,12 +17,8 @@
       }
     },
     "production": {
-      "android": {
-        "buildType": "apk"
-      },
-      "ios": {
-        "enterpriseProvisioning": "universal"
-      }
+      "android": {},
+      "ios": {}
     }
   },
   "submit": {
