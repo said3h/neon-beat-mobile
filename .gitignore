@@ -31,3 +31,9 @@ yarn-error.*
 
 # TypeScript
 *.tsbuildinfo
+
+# Builds (se generan en GitHub Actions)
+*.apk
+*.ipa
+*.aab
+*.app
