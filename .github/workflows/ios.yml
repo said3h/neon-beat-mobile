@@ -10,6 +10,8 @@ on:
 jobs:
   build:
     runs-on: macos-latest
+    env:
+      CI: "1"
 
     steps:
       - uses: actions/checkout@v4
@@ -26,7 +28,7 @@ jobs:
         run: pod --version
 
       - name: Generate iOS project
-        run: npx expo prebuild --platform ios --non-interactive --no-install
+        run: npx expo prebuild --platform ios --no-install
 
       - name: Install CocoaPods dependencies
         working-directory: ios
