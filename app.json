@@ -37,12 +37,6 @@
     "scheme": "neonbeat",
     "experiments": {
       "typedRoutes": true
-    },
-    "owner": "said3h",
-    "extra": {
-      "eas": {
-        "projectId": "YOUR_PROJECT_ID"
-      }
     }
   }
 }
