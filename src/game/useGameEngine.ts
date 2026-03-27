@@ -316,8 +316,8 @@ export function useGameEngine() {
             lastPlaybackPositionMsRef.current = status.positionMillis;
             lastPlaybackStatusTimestampRef.current = performance.now();
             isAudioPlayingRef.current = status.isPlaying;
-            if (status.playbackRate !== undefined) {
-              playbackRateRef.current = status.playbackRate;
+            if (status.rate !== undefined) {
+              playbackRateRef.current = status.rate;
             }
           }
         });

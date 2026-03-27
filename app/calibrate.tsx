@@ -10,7 +10,8 @@ import Slider from '@react-native-community/slider';
 import { Audio } from 'expo-av';
 import { useRouter } from 'expo-router';
 import {
-  getAudioCalibrationOffset,
+  getAudioCalibrationOffsetAsync,
+  resetAudioCalibration,
   setAudioCalibrationOffset,
 } from '../src/game/audioCalibration';
 import { PRIMARY_TRACK } from '../src/game/songData';
@@ -18,11 +19,16 @@ import { glow, neon } from '../src/theme/neon';
 
 export default function CalibrateScreen() {
   const router = useRouter();
-  const [offset, setOffset] = useState(() => getAudioCalibrationOffset());
+  const [offset, setOffset] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const soundRef = useRef<Audio.Sound | null>(null);
   const startTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stopTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Load calibration offset on mount
+  useEffect(() => {
+    void getAudioCalibrationOffsetAsync().then(setOffset);
+  }, []);
 
   const clearTimers = () => {
     if (startTimeoutRef.current) {
@@ -217,15 +223,21 @@ export default function CalibrateScreen() {
             styles.finishButton,
             pressed && styles.finishButtonPressed,
           ]}
-          onPress={() => {
-            setAudioCalibrationOffset(offset);
+          onPress={async () => {
+            await setAudioCalibrationOffset(offset);
             router.back();
           }}
         >
           <Text style={styles.finishButtonText}>FINISH CALIBRATION {'>'}</Text>
         </Pressable>
 
-        <Pressable style={styles.resetButton} onPress={() => setOffset(0)}>
+        <Pressable
+          style={styles.resetButton}
+          onPress={async () => {
+            setOffset(0);
+            await resetAudioCalibration();
+          }}
+        >
           <Text style={styles.resetButtonText}>RESET TO DEFAULT</Text>
         </Pressable>
       </View>

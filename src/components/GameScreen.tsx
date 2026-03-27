@@ -12,7 +12,10 @@ import { GameState, COLORS } from '../game/config';
 import { useGameEngine } from '../game/useGameEngine';
 import { GAME_CANVAS_WIDTH } from '../game/layout';
 import { getSongByTrackId } from '../game/songData';
-import { getAudioCalibrationOffset } from '../game/audioCalibration';
+import {
+  getAudioCalibrationOffset,
+  getAudioCalibrationOffsetAsync,
+} from '../game/audioCalibration';
 import { glow, neon } from '../theme/neon';
 
 type SessionPhase = 'booting' | 'playing' | 'paused' | 'completed' | 'gameover';
@@ -177,7 +180,11 @@ export default function GameScreen() {
     await stopGame();
 
     init(song.notes);
-    setAudioOffset(getAudioCalibrationOffset());
+
+    // Use async calibration load to ensure persisted offset is applied
+    const calibrationOffset = await getAudioCalibrationOffsetAsync();
+    setAudioOffset(calibrationOffset);
+
     setSessionPhase('booting');
     forceRender();
 
