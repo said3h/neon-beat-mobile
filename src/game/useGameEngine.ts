@@ -48,9 +48,10 @@ export function useGameEngine() {
   });
 
   const audioRef = useRef<Audio.Sound | null>(null);
-  const startTimeRef = useRef(0);
-  const pausedAtRef = useRef<number | null>(null);
-  const accumulatedPauseMsRef = useRef(0);
+  const lastPlaybackPositionMsRef = useRef(0);
+  const lastPlaybackStatusTimestampRef = useRef(0);
+  const isAudioPlayingRef = useRef(false);
+  const playbackRateRef = useRef(1);
   const rafIdRef = useRef(0);
 
   const cleanupAudio = useCallback(async () => {
@@ -58,6 +59,9 @@ export function useGameEngine() {
     if (!sound) {
       return;
     }
+
+    // Clear the callback to prevent updates after unloading
+    sound.setOnPlaybackStatusUpdate(null);
 
     audioRef.current = null;
 
@@ -87,9 +91,10 @@ export function useGameEngine() {
   }, [cleanupAudio]);
 
   const init = useCallback((notes: Note[]) => {
-    startTimeRef.current = 0;
-    pausedAtRef.current = null;
-    accumulatedPauseMsRef.current = 0;
+    lastPlaybackPositionMsRef.current = 0;
+    lastPlaybackStatusTimestampRef.current = 0;
+    isAudioPlayingRef.current = false;
+    playbackRateRef.current = 1;
 
     engineRef.current = {
       ...engineRef.current,
@@ -114,17 +119,17 @@ export function useGameEngine() {
   }, []);
 
   const getCurrentTime = useCallback((): number => {
-    if (!startTimeRef.current) {
-      return engineRef.current.audioOffset;
+    if (isAudioPlayingRef.current && lastPlaybackStatusTimestampRef.current > 0) {
+      let elapsed = performance.now() - lastPlaybackStatusTimestampRef.current;
+      // Safety clamp: prevent runaway if status update is delayed
+      elapsed = Math.min(elapsed, 120); 
+      return (
+        lastPlaybackPositionMsRef.current +
+        elapsed * playbackRateRef.current +
+        engineRef.current.audioOffset
+      );
     }
-
-    const now = pausedAtRef.current ?? performance.now();
-    return (
-      now -
-      startTimeRef.current -
-      accumulatedPauseMsRef.current +
-      engineRef.current.audioOffset
-    );
+    return lastPlaybackPositionMsRef.current + engineRef.current.audioOffset;
   }, []);
 
   const getHitResult = useCallback((distance: number): HitResult | null => {
@@ -300,24 +305,43 @@ export function useGameEngine() {
 
         const { sound } = await Audio.Sound.createAsync(
           audioSource,
-          { shouldPlay: false }
+          {
+            shouldPlay: false,
+            isLooping: false,
+          }
         );
-        audioRef.current = sound;
 
-        startTimeRef.current = performance.now();
-        pausedAtRef.current = null;
-        accumulatedPauseMsRef.current = 0;
+        sound.setOnPlaybackStatusUpdate((status) => {
+          if (status.isLoaded) {
+            lastPlaybackPositionMsRef.current = status.positionMillis;
+            lastPlaybackStatusTimestampRef.current = performance.now();
+            isAudioPlayingRef.current = status.isPlaying;
+            if (status.playbackRate !== undefined) {
+              playbackRateRef.current = status.playbackRate;
+            }
+          }
+        });
+
+        // Request more frequent updates (50ms)
+        await sound.setProgressUpdateIntervalAsync(50); 
+
+        audioRef.current = sound;
+        lastPlaybackPositionMsRef.current = 0;
+        lastPlaybackStatusTimestampRef.current = 0;
+        isAudioPlayingRef.current = false;
+        playbackRateRef.current = 1;
         engineRef.current.currentTime = 0;
 
         await sound.playAsync();
         engineRef.current.gameState.isPlaying = true;
       } catch (error) {
         console.error('Error starting audio:', error);
-        startTimeRef.current = performance.now();
-        pausedAtRef.current = null;
-        accumulatedPauseMsRef.current = 0;
+        lastPlaybackPositionMsRef.current = 0;
+        lastPlaybackStatusTimestampRef.current = 0;
+        isAudioPlayingRef.current = false;
+        playbackRateRef.current = 1;
         engineRef.current.currentTime = 0;
-        engineRef.current.gameState.isPlaying = true;
+        engineRef.current.gameState.isPlaying = false;
       }
     },
     [cleanupAudio]
@@ -328,30 +352,28 @@ export function useGameEngine() {
       return;
     }
 
-    pausedAtRef.current = performance.now();
-    engineRef.current.currentTime = getCurrentTime();
-    engineRef.current.gameState.isPlaying = false;
-
     if (audioRef.current) {
       try {
         await audioRef.current.pauseAsync();
+        isAudioPlayingRef.current = false;
       } catch (error) {
         // Ignore pause failures and keep the UI responsive.
       }
     }
+
+    engineRef.current.gameState.isPlaying = false;
+    engineRef.current.currentTime = getCurrentTime();
   }, [getCurrentTime]);
 
   const resumeGame = useCallback(async () => {
-    if (engineRef.current.gameState.isGameOver || pausedAtRef.current === null) {
+    if (engineRef.current.gameState.isGameOver) {
       return;
     }
-
-    accumulatedPauseMsRef.current += performance.now() - pausedAtRef.current;
-    pausedAtRef.current = null;
 
     if (audioRef.current) {
       try {
         await audioRef.current.playAsync();
+        // isAudioPlayingRef will be updated by the status callback
       } catch (error) {
         // Ignore play failures so the chart can still resume visually.
       }
@@ -361,8 +383,11 @@ export function useGameEngine() {
   }, []);
 
   const stopGame = useCallback(async () => {
-    pausedAtRef.current = null;
-    accumulatedPauseMsRef.current = 0;
+    lastPlaybackPositionMsRef.current = 0;
+    lastPlaybackStatusTimestampRef.current = 0;
+    isAudioPlayingRef.current = false;
+    playbackRateRef.current = 1;
+    engineRef.current.currentTime = 0;
     await cleanupAudio();
     engineRef.current.gameState.isPlaying = false;
   }, [cleanupAudio]);
