@@ -1,5 +1,6 @@
 import { useRef, useCallback, useEffect } from 'react';
 import { Audio } from 'expo-av';
+import type { AVPlaybackSource } from 'expo-av';
 import * as Haptics from 'expo-haptics';
 import {
   GameState,
@@ -48,6 +49,8 @@ export function useGameEngine() {
 
   const audioRef = useRef<Audio.Sound | null>(null);
   const startTimeRef = useRef(0);
+  const pausedAtRef = useRef<number | null>(null);
+  const accumulatedPauseMsRef = useRef(0);
   const rafIdRef = useRef(0);
 
   const cleanupAudio = useCallback(async () => {
@@ -67,7 +70,7 @@ export function useGameEngine() {
     try {
       await sound.unloadAsync();
     } catch (error) {
-      // Ignore unload errors so cleanup never blocks game shutdown.
+      // Ignore unload errors so cleanup never blocks shutdown.
     }
   }, []);
 
@@ -85,6 +88,8 @@ export function useGameEngine() {
 
   const init = useCallback((notes: Note[]) => {
     startTimeRef.current = 0;
+    pausedAtRef.current = null;
+    accumulatedPauseMsRef.current = 0;
 
     engineRef.current = {
       ...engineRef.current,
@@ -109,7 +114,17 @@ export function useGameEngine() {
   }, []);
 
   const getCurrentTime = useCallback((): number => {
-    return performance.now() - startTimeRef.current + engineRef.current.audioOffset;
+    if (!startTimeRef.current) {
+      return engineRef.current.audioOffset;
+    }
+
+    const now = pausedAtRef.current ?? performance.now();
+    return (
+      now -
+      startTimeRef.current -
+      accumulatedPauseMsRef.current +
+      engineRef.current.audioOffset
+    );
   }, []);
 
   const getHitResult = useCallback((distance: number): HitResult | null => {
@@ -122,19 +137,22 @@ export function useGameEngine() {
     return null;
   }, []);
 
-  const spawnParticles = useCallback((x: number, y: number, color: string, count: number = 16) => {
-    for (let i = 0; i < count; i++) {
-      engineRef.current.particles.push({
-        x,
-        y,
-        vx: (Math.random() - 0.5) * 12,
-        vy: (Math.random() - 0.8) * 12,
-        life: 1,
-        color,
-        size: 3 + Math.random() * 4,
-      });
-    }
-  }, []);
+  const spawnParticles = useCallback(
+    (x: number, y: number, color: string, count: number = 16) => {
+      for (let i = 0; i < count; i++) {
+        engineRef.current.particles.push({
+          x,
+          y,
+          vx: (Math.random() - 0.5) * 12,
+          vy: (Math.random() - 0.8) * 12,
+          life: 1,
+          color,
+          size: 3 + Math.random() * 4,
+        });
+      }
+    },
+    []
+  );
 
   const spawnText = useCallback((text: string, x: number, y: number, color: string) => {
     engineRef.current.texts.push({
@@ -146,77 +164,89 @@ export function useGameEngine() {
     });
   }, []);
 
-  const hitLane = useCallback(async (lane: number) => {
-    const engine = engineRef.current;
-    const now = getCurrentTime();
-    const { HIT_WIN } = DIFFICULTY_CONFIG;
-    const hitX = getLaneCenterX(lane);
-    const hitY = GAME_TARGET_Y;
+  const hitLane = useCallback(
+    async (lane: number) => {
+      const engine = engineRef.current;
+      const now = getCurrentTime();
+      const { HIT_WIN } = DIFFICULTY_CONFIG;
+      const hitX = getLaneCenterX(lane);
+      const hitY = GAME_TARGET_Y;
 
-    let bestNote: Note | null = null;
-    let bestDistance = Infinity;
+      let bestNote: Note | null = null;
+      let bestDistance = Infinity;
 
-    for (const note of engine.notes) {
-      if (!note.hit && !note.missed && note.lane === lane) {
-        const distance = Math.abs(note.time - now);
-        if (distance < HIT_WIN * 1.6 && distance < bestDistance) {
-          bestNote = note;
-          bestDistance = distance;
+      for (const note of engine.notes) {
+        if (!note.hit && !note.missed && note.lane === lane) {
+          const distance = Math.abs(note.time - now);
+          if (distance < HIT_WIN * 1.6 && distance < bestDistance) {
+            bestNote = note;
+            bestDistance = distance;
+          }
         }
       }
-    }
 
-    if (bestNote && bestDistance <= HIT_WIN) {
-      const result = getHitResult(bestDistance);
-      const multiplier = getComboMultiplier(engine.gameState.combo);
+      if (bestNote && bestDistance <= HIT_WIN) {
+        const result = getHitResult(bestDistance);
+        const multiplier = getComboMultiplier(engine.gameState.combo);
 
-      if (result === 'PERFECT') {
-        bestNote.hit = true;
-        engine.gameState.score += SCORE_BASE.PERFECT * multiplier;
-        engine.gameState.combo++;
-        engine.gameState.maxCombo = Math.max(engine.gameState.maxCombo, engine.gameState.combo);
-        engine.gameState.perfects++;
-        engine.gameState.health = Math.min(100, engine.gameState.health + 6);
+        if (result === 'PERFECT') {
+          bestNote.hit = true;
+          engine.gameState.score += SCORE_BASE.PERFECT * multiplier;
+          engine.gameState.combo++;
+          engine.gameState.maxCombo = Math.max(
+            engine.gameState.maxCombo,
+            engine.gameState.combo
+          );
+          engine.gameState.perfects++;
+          engine.gameState.health = Math.min(100, engine.gameState.health + 6);
 
-        spawnParticles(hitX, hitY, COLORS[lane]);
-        spawnText('PERFECT', hitX, hitY - 30, '#39ff14');
-        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      } else if (result === 'GOOD') {
-        bestNote.hit = true;
-        engine.gameState.score += SCORE_BASE.GOOD * multiplier;
-        engine.gameState.combo++;
-        engine.gameState.maxCombo = Math.max(engine.gameState.maxCombo, engine.gameState.combo);
-        engine.gameState.goods++;
-        engine.gameState.health = Math.min(100, engine.gameState.health + 4);
+          spawnParticles(hitX, hitY, COLORS[lane]);
+          spawnText('PERFECT', hitX, hitY - 34, '#92ff71');
+          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        } else if (result === 'GOOD') {
+          bestNote.hit = true;
+          engine.gameState.score += SCORE_BASE.GOOD * multiplier;
+          engine.gameState.combo++;
+          engine.gameState.maxCombo = Math.max(
+            engine.gameState.maxCombo,
+            engine.gameState.combo
+          );
+          engine.gameState.goods++;
+          engine.gameState.health = Math.min(100, engine.gameState.health + 4);
 
-        spawnParticles(hitX, hitY, COLORS[lane], 12);
-        spawnText('GOOD', hitX, hitY - 30, '#ccff00');
-        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      } else if (result === 'OK') {
-        bestNote.hit = true;
-        engine.gameState.score += SCORE_BASE.OK * multiplier;
-        engine.gameState.combo++;
-        engine.gameState.maxCombo = Math.max(engine.gameState.maxCombo, engine.gameState.combo);
-        engine.gameState.okays++;
-        engine.gameState.health = Math.min(100, engine.gameState.health + 2);
+          spawnParticles(hitX, hitY, COLORS[lane], 12);
+          spawnText('GOOD', hitX, hitY - 34, '#ffd66e');
+          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        } else if (result === 'OK') {
+          bestNote.hit = true;
+          engine.gameState.score += SCORE_BASE.OK * multiplier;
+          engine.gameState.combo++;
+          engine.gameState.maxCombo = Math.max(
+            engine.gameState.maxCombo,
+            engine.gameState.combo
+          );
+          engine.gameState.okays++;
+          engine.gameState.health = Math.min(100, engine.gameState.health + 2);
 
-        spawnParticles(hitX, hitY, COLORS[lane], 8);
-        spawnText('OK', hitX, hitY - 30, '#00ffff');
-        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      } else if (result === 'MISS') {
-        bestNote.missed = true;
-        engine.gameState.combo = 0;
-        engine.gameState.misses++;
-        engine.gameState.health -= 8;
+          spawnParticles(hitX, hitY, COLORS[lane], 8);
+          spawnText('OK', hitX, hitY - 34, '#00f4fe');
+          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        } else if (result === 'MISS') {
+          bestNote.missed = true;
+          engine.gameState.combo = 0;
+          engine.gameState.misses++;
+          engine.gameState.health -= 8;
 
-        spawnText('MISS', hitX, hitY - 30, '#ff073a');
+          spawnText('MISS', hitX, hitY - 34, '#ff7351');
+        }
+
+        if (engine.gameState.health <= 0) {
+          setGameOver();
+        }
       }
-
-      if (engine.gameState.health <= 0) {
-        setGameOver();
-      }
-    }
-  }, [getCurrentTime, getHitResult, setGameOver, spawnParticles, spawnText]);
+    },
+    [getCurrentTime, getHitResult, setGameOver, spawnParticles, spawnText]
+  );
 
   const updateParticles = useCallback(() => {
     const engine = engineRef.current;
@@ -263,31 +293,76 @@ export function useGameEngine() {
     }
   }, [getCurrentTime, setGameOver]);
 
-  const startGame = useCallback(async (audioUri: string) => {
-    try {
-      await cleanupAudio();
+  const startGame = useCallback(
+    async (audioSource: AVPlaybackSource) => {
+      try {
+        await cleanupAudio();
 
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: audioUri },
-        { shouldPlay: false }
-      );
-      audioRef.current = sound;
+        const { sound } = await Audio.Sound.createAsync(
+          audioSource,
+          { shouldPlay: false }
+        );
+        audioRef.current = sound;
 
-      startTimeRef.current = performance.now();
-      engineRef.current.currentTime = 0;
+        startTimeRef.current = performance.now();
+        pausedAtRef.current = null;
+        accumulatedPauseMsRef.current = 0;
+        engineRef.current.currentTime = 0;
 
-      await sound.playAsync();
+        await sound.playAsync();
+        engineRef.current.gameState.isPlaying = true;
+      } catch (error) {
+        console.error('Error starting audio:', error);
+        startTimeRef.current = performance.now();
+        pausedAtRef.current = null;
+        accumulatedPauseMsRef.current = 0;
+        engineRef.current.currentTime = 0;
+        engineRef.current.gameState.isPlaying = true;
+      }
+    },
+    [cleanupAudio]
+  );
 
-      engineRef.current.gameState.isPlaying = true;
-    } catch (error) {
-      console.error('Error starting audio:', error);
-      startTimeRef.current = performance.now();
-      engineRef.current.currentTime = 0;
-      engineRef.current.gameState.isPlaying = true;
+  const pauseGame = useCallback(async () => {
+    if (!engineRef.current.gameState.isPlaying) {
+      return;
     }
-  }, [cleanupAudio]);
+
+    pausedAtRef.current = performance.now();
+    engineRef.current.currentTime = getCurrentTime();
+    engineRef.current.gameState.isPlaying = false;
+
+    if (audioRef.current) {
+      try {
+        await audioRef.current.pauseAsync();
+      } catch (error) {
+        // Ignore pause failures and keep the UI responsive.
+      }
+    }
+  }, [getCurrentTime]);
+
+  const resumeGame = useCallback(async () => {
+    if (engineRef.current.gameState.isGameOver || pausedAtRef.current === null) {
+      return;
+    }
+
+    accumulatedPauseMsRef.current += performance.now() - pausedAtRef.current;
+    pausedAtRef.current = null;
+
+    if (audioRef.current) {
+      try {
+        await audioRef.current.playAsync();
+      } catch (error) {
+        // Ignore play failures so the chart can still resume visually.
+      }
+    }
+
+    engineRef.current.gameState.isPlaying = true;
+  }, []);
 
   const stopGame = useCallback(async () => {
+    pausedAtRef.current = null;
+    accumulatedPauseMsRef.current = 0;
     await cleanupAudio();
     engineRef.current.gameState.isPlaying = false;
   }, [cleanupAudio]);
@@ -333,6 +408,8 @@ export function useGameEngine() {
     init,
     hitLane,
     startGame,
+    pauseGame,
+    resumeGame,
     stopGame,
     startLoop,
     stopLoop,

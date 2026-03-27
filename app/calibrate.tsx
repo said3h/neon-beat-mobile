@@ -1,5 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import {
+  Pressable,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import Slider from '@react-native-community/slider';
 import { Audio } from 'expo-av';
 import { useRouter } from 'expo-router';
@@ -7,7 +13,8 @@ import {
   getAudioCalibrationOffset,
   setAudioCalibrationOffset,
 } from '../src/game/audioCalibration';
-import { TEST_AUDIO_URI } from '../src/game/songData';
+import { PRIMARY_TRACK } from '../src/game/songData';
+import { glow, neon } from '../src/theme/neon';
 
 export default function CalibrateScreen() {
   const router = useRouter();
@@ -33,7 +40,7 @@ export default function CalibrateScreen() {
     const loadSound = async () => {
       try {
         const { sound } = await Audio.Sound.createAsync(
-          { uri: TEST_AUDIO_URI },
+          PRIMARY_TRACK.audioSource,
           { shouldPlay: false }
         );
         soundRef.current = sound;
@@ -60,7 +67,7 @@ export default function CalibrateScreen() {
       try {
         await soundRef.current.stopAsync();
       } catch (error) {
-        // Ignore stop errors when the sound has not started yet.
+        // Ignore stop errors when the sound is idle.
       }
 
       await soundRef.current.setPositionAsync(0);
@@ -80,7 +87,7 @@ export default function CalibrateScreen() {
     try {
       await sound.stopAsync();
     } catch (error) {
-      // Ignore stop errors when replaying from an idle state.
+      // Ignore stop errors when restarting the preview.
     }
 
     await sound.setPositionAsync(0);
@@ -113,161 +120,357 @@ export default function CalibrateScreen() {
     }, 10000 + Math.max(offset, 0));
   };
 
+  const displayedOffset = offset > 0 ? `+${offset}` : `${offset}`;
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>CALIBRAR AUDIO</Text>
-      <Text style={styles.subtitle}>Ajusta el offset para sincronizar audio y notas</Text>
+    <SafeAreaView style={styles.safeArea}>
+      <View style={[styles.orb, styles.orbPrimary]} />
+      <View style={[styles.orb, styles.orbSecondary]} />
 
-      <View style={styles.sliderContainer}>
-        <Text style={styles.label}>Offset: {offset}ms</Text>
-        <Slider
-          style={styles.slider}
-          minimumValue={-200}
-          maximumValue={200}
-          step={10}
-          value={offset}
-          onValueChange={setOffset}
-          minimumTrackTintColor="#39ff14"
-          maximumTrackTintColor="#333"
-          thumbTintColor="#39ff14"
-        />
-        <View style={styles.scale}>
-          <Text style={styles.scaleText}>-200ms</Text>
-          <Text style={styles.scaleText}>0ms</Text>
-          <Text style={styles.scaleText}>+200ms</Text>
+      <View style={styles.container}>
+        <View style={styles.topBar}>
+          <Pressable style={styles.backButton} onPress={() => router.back()}>
+            <Text style={styles.backButtonText}>{'<'}</Text>
+          </Pressable>
+          <Text style={styles.bitsText}>1,250 BITS</Text>
         </View>
-      </View>
 
-      <View style={styles.buttons}>
-        <TouchableOpacity
-          style={[styles.playButton, isPlaying && styles.playButtonActive]}
-          onPress={isPlaying ? stopTest : playTest}
-        >
-          <Text style={[styles.playButtonText, isPlaying && styles.playButtonTextActive]}>
-            {isPlaying ? 'DETENER' : 'PROBAR'}
+        <View style={styles.header}>
+          <Text style={styles.title}>FEEL THE BEAT</Text>
+          <Text style={styles.subtitle}>
+            Make sure the snare feels locked to the visual pulse before you start
+            playing.
           </Text>
-        </TouchableOpacity>
-      </View>
+        </View>
 
-      <View style={styles.info}>
-        <Text style={styles.infoTitle}>Instrucciones:</Text>
-        <Text style={styles.infoText}>1. Reproduce el audio de prueba</Text>
-        <Text style={styles.infoText}>2. Ajusta el offset hasta que se sienta correcto</Text>
-        <Text style={styles.infoText}>3. El offset positivo retrasa el audio</Text>
-        <Text style={styles.infoText}>4. El offset negativo adelanta el audio</Text>
-        <Text style={styles.infoText}>5. Guarda y vuelve al menu para jugar con ese ajuste</Text>
-      </View>
+        <View style={styles.centerStage}>
+          <View style={styles.outerPulse} />
+          <View style={styles.midPulse} />
 
-      <TouchableOpacity
-        style={styles.saveButton}
-        onPress={() => {
-          setAudioCalibrationOffset(offset);
-          router.back();
-        }}
-      >
-        <Text style={styles.saveButtonText}>GUARDAR Y VOLVER</Text>
-      </TouchableOpacity>
-    </View>
+          <Pressable
+            style={({ pressed }) => [
+              styles.tapButton,
+              pressed && styles.tapButtonPressed,
+              isPlaying && styles.tapButtonActive,
+            ]}
+            onPress={isPlaying ? () => void stopTest() : () => void playTest()}
+          >
+            <View style={styles.tapInner}>
+              <Text style={styles.tapIcon}>{isPlaying ? '[]' : 'OO'}</Text>
+              <Text style={styles.tapLabel}>{isPlaying ? 'STOP' : 'TAP'}</Text>
+            </View>
+          </Pressable>
+
+          <View style={styles.offsetBubble}>
+            <Text style={styles.offsetBubbleText}>{displayedOffset}ms</Text>
+          </View>
+        </View>
+
+        <View style={styles.sliderCard}>
+          <View style={styles.sliderHeader}>
+            <View>
+              <Text style={styles.sliderCaption}>CURRENT DELAY</Text>
+              <Text style={styles.sliderValue}>
+                {Math.abs(offset / 100).toFixed(2)}
+                <Text style={styles.sliderUnit}>MS</Text>
+              </Text>
+            </View>
+
+            <Text style={styles.sliderMeta}>Fine tune offset</Text>
+          </View>
+
+          <View style={styles.sliderShell}>
+            <Slider
+              style={styles.slider}
+              minimumValue={-200}
+              maximumValue={200}
+              step={10}
+              value={offset}
+              onValueChange={setOffset}
+              minimumTrackTintColor={neon.colors.secondary}
+              maximumTrackTintColor="rgba(255,255,255,0.10)"
+              thumbTintColor={neon.colors.white}
+            />
+          </View>
+
+          <View style={styles.sliderScale}>
+            <Text style={styles.sliderScaleLabel}>EARLIER</Text>
+            <Text style={[styles.sliderScaleLabel, styles.sliderScaleCenter]}>
+              PERFECT SYNC
+            </Text>
+            <Text style={styles.sliderScaleLabel}>LATER</Text>
+          </View>
+        </View>
+
+        <View style={styles.instructions}>
+          <Text style={styles.instructionsText}>
+            Positive values delay the audio. Negative values push it earlier.
+          </Text>
+          <Text style={styles.instructionsText}>
+            Use the big button as a quick preview, then save when the groove feels
+            right.
+          </Text>
+        </View>
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.finishButton,
+            pressed && styles.finishButtonPressed,
+          ]}
+          onPress={() => {
+            setAudioCalibrationOffset(offset);
+            router.back();
+          }}
+        >
+          <Text style={styles.finishButtonText}>FINISH CALIBRATION {'>'}</Text>
+        </Pressable>
+
+        <Pressable style={styles.resetButton} onPress={() => setOffset(0)}>
+          <Text style={styles.resetButtonText}>RESET TO DEFAULT</Text>
+        </Pressable>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: neon.colors.background,
+  },
+  orb: {
+    position: 'absolute',
+    borderRadius: 999,
+  },
+  orbPrimary: {
+    width: 280,
+    height: 280,
+    left: -90,
+    top: 160,
+    backgroundColor: 'rgba(255,140,147,0.10)',
+  },
+  orbSecondary: {
+    width: 340,
+    height: 340,
+    right: -130,
+    bottom: 120,
+    backgroundColor: 'rgba(0,244,254,0.08)',
+  },
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    paddingBottom: 24,
+    justifyContent: 'space-between',
+  },
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    justifyContent: 'flex-start',
-    paddingTop: 60,
-    paddingHorizontal: 30,
+  },
+  backButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(37,37,44,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backButtonText: {
+    color: neon.colors.text,
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  bitsText: {
+    color: neon.colors.text,
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+  },
+  header: {
+    alignItems: 'center',
+    marginTop: 6,
   },
   title: {
-    color: '#00ffff',
-    fontSize: 32,
-    fontWeight: 'bold',
-    marginBottom: 10,
+    color: neon.colors.text,
+    fontSize: 44,
+    lineHeight: 44,
+    fontWeight: '900',
+    textAlign: 'center',
+    letterSpacing: -1.4,
   },
   subtitle: {
-    color: '#666',
-    fontSize: 14,
-    marginBottom: 40,
+    marginTop: 14,
+    color: neon.colors.textMuted,
+    fontSize: 18,
+    lineHeight: 26,
     textAlign: 'center',
   },
-  sliderContainer: {
-    width: '100%',
+  centerStage: {
     alignItems: 'center',
-    marginBottom: 30,
+    justifyContent: 'center',
+    marginVertical: 8,
   },
-  label: {
-    color: '#fff',
-    fontSize: 24,
-    marginBottom: 20,
+  outerPulse: {
+    position: 'absolute',
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    borderWidth: 1,
+    borderColor: 'rgba(255,140,147,0.16)',
+  },
+  midPulse: {
+    position: 'absolute',
+    width: 212,
+    height: 212,
+    borderRadius: 106,
+    borderWidth: 2,
+    borderColor: 'rgba(0,244,254,0.14)',
+  },
+  tapButton: {
+    width: 208,
+    height: 208,
+    borderRadius: 104,
+    padding: 4,
+    backgroundColor: neon.colors.primary,
+    ...glow(neon.colors.primary, 0.26, 28, 12),
+  },
+  tapButtonPressed: {
+    transform: [{ scale: 0.97 }],
+  },
+  tapButtonActive: {
+    backgroundColor: neon.colors.secondary,
+    ...glow(neon.colors.secondary, 0.22, 28, 12),
+  },
+  tapInner: {
+    flex: 1,
+    borderRadius: 100,
+    backgroundColor: 'rgba(15,18,37,0.96)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  tapIcon: {
+    color: neon.colors.primary,
+    fontSize: 28,
+    fontWeight: '700',
+  },
+  tapLabel: {
+    color: neon.colors.text,
+    fontSize: 34,
+    fontWeight: '900',
+    letterSpacing: -0.8,
+  },
+  offsetBubble: {
+    position: 'absolute',
+    top: 16,
+    right: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 999,
+    backgroundColor: 'rgba(37,37,44,0.78)',
+    ...glow(neon.colors.secondary, 0.14, 20, 6),
+  },
+  offsetBubbleText: {
+    color: neon.colors.secondary,
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  sliderCard: {
+    backgroundColor: 'rgba(25,25,31,0.96)',
+    borderRadius: neon.radius.xl,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.05)',
+  },
+  sliderHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    marginBottom: 18,
+  },
+  sliderCaption: {
+    color: neon.colors.textFaint,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.8,
+    marginBottom: 6,
+  },
+  sliderValue: {
+    color: neon.colors.text,
+    fontSize: 42,
+    fontWeight: '900',
+  },
+  sliderUnit: {
+    color: neon.colors.secondary,
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  sliderMeta: {
+    color: neon.colors.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  sliderShell: {
+    borderRadius: neon.radius.full,
+    backgroundColor: 'rgba(37,37,44,0.95)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
   slider: {
     width: '100%',
     height: 40,
   },
-  scale: {
+  sliderScale: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    width: '100%',
+    marginTop: 8,
+    paddingHorizontal: 6,
+  },
+  sliderScaleLabel: {
+    color: neon.colors.textFaint,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.4,
+  },
+  sliderScaleCenter: {
+    color: neon.colors.secondary,
+  },
+  instructions: {
     paddingHorizontal: 10,
+    gap: 8,
   },
-  scaleText: {
-    color: '#666',
-    fontSize: 12,
-  },
-  buttons: {
-    flexDirection: 'row',
-    marginBottom: 40,
-  },
-  playButton: {
-    backgroundColor: 'transparent',
-    paddingHorizontal: 40,
-    paddingVertical: 15,
-    borderRadius: 25,
-    borderWidth: 2,
-    borderColor: '#39ff14',
-  },
-  playButtonActive: {
-    backgroundColor: '#39ff14',
-  },
-  playButtonText: {
-    color: '#39ff14',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  playButtonTextActive: {
-    color: '#000',
-  },
-  info: {
-    backgroundColor: '#111',
-    padding: 20,
-    borderRadius: 10,
-    width: '100%',
-    marginBottom: 30,
-  },
-  infoTitle: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 10,
-  },
-  infoText: {
-    color: '#aaa',
+  instructionsText: {
+    color: neon.colors.textMuted,
     fontSize: 14,
-    marginVertical: 3,
+    lineHeight: 22,
+    textAlign: 'center',
   },
-  saveButton: {
-    backgroundColor: '#00ffff',
-    paddingHorizontal: 40,
-    paddingVertical: 15,
-    borderRadius: 25,
-    borderWidth: 2,
-    borderColor: '#00ffff',
+  finishButton: {
+    borderRadius: neon.radius.full,
+    paddingVertical: 20,
+    backgroundColor: neon.colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...glow(neon.colors.primary, 0.3, 24, 12),
   },
-  saveButtonText: {
-    color: '#000',
-    fontSize: 18,
-    fontWeight: 'bold',
+  finishButtonPressed: {
+    transform: [{ scale: 0.985 }],
+  },
+  finishButtonText: {
+    color: '#5f001b',
+    fontSize: 20,
+    fontWeight: '900',
+    letterSpacing: -0.6,
+  },
+  resetButton: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  resetButtonText: {
+    color: neon.colors.textFaint,
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.6,
   },
 });

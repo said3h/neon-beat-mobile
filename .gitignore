@@ -39,3 +39,4 @@ yarn-error.*
 *.ipa
 *.aab
 *.app
+build/
